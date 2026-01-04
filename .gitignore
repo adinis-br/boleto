@@ -1,0 +1,17 @@
+# Dependências
+node_modules/
+
+# Produção
+build/
+dist/
+
+# Arquivos de Sistema
+.DS_Store
+Thumbs.db
+
+# Variáveis de Ambiente (SEGURANÇA CRÍTICA)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local

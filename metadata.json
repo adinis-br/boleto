@@ -1,0 +1,5 @@
+{
+  "name": "Leitor de Imagens Luxuoso",
+  "description": "Uma aplicação premium para análise, edição e geração de imagens utilizando a API Gemini, com uma interface sofisticada e ferramentas de ajuste fino.",
+  "requestFramePermissions": []
+}
