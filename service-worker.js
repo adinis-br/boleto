@@ -23,7 +23,8 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
   // 1. Lógica Especial para Share Target (POST)
-  if (event.request.method === 'POST' && url.pathname === '/share-target') {
+  // Agora verifica se é um POST na raiz com o parâmetro share_target=true
+  if (event.request.method === 'POST' && url.searchParams.get('share_target') === 'true') {
     event.respondWith(
       (async () => {
         try {
@@ -36,9 +37,11 @@ self.addEventListener('fetch', (event) => {
               headers: { 'content-type': file.type }
             }));
           }
+          // Redireciona para limpar o POST e processar a imagem via GET
           return Response.redirect('/?share_processing=true', 303);
         } catch (err) {
           console.error('Erro no Share Target:', err);
+          // Em caso de erro, redireciona para a home normalmente para não quebrar a UX
           return Response.redirect('/?error=share_failed', 303);
         }
       })()
@@ -47,12 +50,10 @@ self.addEventListener('fetch', (event) => {
   }
 
   // 2. Lógica de Cache para o App (GET) - Stale-While-Revalidate
-  // Isso permite que o app carregue offline, requisito para instalação PWA
   if (event.request.method === 'GET') {
     event.respondWith(
       caches.match(event.request).then((cachedResponse) => {
         const fetchPromise = fetch(event.request).then((networkResponse) => {
-          // Apenas cacheia respostas válidas e do mesmo domínio (ou scripts/estilos críticos)
           if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
             const responseToCache = networkResponse.clone();
             caches.open(CACHE_NAME).then((cache) => {
@@ -61,7 +62,7 @@ self.addEventListener('fetch', (event) => {
           }
           return networkResponse;
         }).catch(() => {
-           // Se falhar a rede e não tiver cache, pode retornar uma página offline aqui se desejar
+           // Fallback offline se necessário
         });
         return cachedResponse || fetchPromise;
       })
