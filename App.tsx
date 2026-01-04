@@ -26,6 +26,9 @@ const CopyIcon = () => (
 const RefreshIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12"/><path d="M3 3v9h9"/></svg>
 );
+const DownloadIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+);
 
 // --- Components ---
 
@@ -203,6 +206,9 @@ export default function App() {
   const [hasCamera, setHasCamera] = useState(false); // Controls button visibility/state
   const [toast, setToast] = useState<{ show: boolean; msg: string }>({ show: false, msg: '' });
   
+  // PWA Install Prompt State
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -246,13 +252,42 @@ export default function App() {
     handleSharedImage();
   }, []);
 
+  // --- PWA Installation Listener ---
+  useEffect(() => {
+    const handler = (e: any) => {
+      // Prevent Chrome 67 and earlier from automatically showing the prompt
+      e.preventDefault();
+      // Stash the event so it can be triggered later.
+      setDeferredPrompt(e);
+      console.log("PWA Install prompt intercepted");
+    };
+
+    window.addEventListener('beforeinstallprompt', handler);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    
+    // Show the install prompt
+    deferredPrompt.prompt();
+    
+    // Wait for the user to respond to the prompt
+    const { outcome } = await deferredPrompt.userChoice;
+    console.log(`User response to the install prompt: ${outcome}`);
+    
+    // We've used the prompt, and can't use it again, throw it away
+    setDeferredPrompt(null);
+  };
+
   // Check for camera availability on mount and on device change
   useEffect(() => {
     const checkCamera = async () => {
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
-        // Filtra mais rigorosamente se possível, mas muitos browsers não dão label sem permissão.
-        // Se a lista > 0, assumimos que TEM, mas se o acesso falhar depois, desativamos (handleCameraAccessError).
         const videoDevices = devices.filter(device => device.kind === 'videoinput');
         setHasCamera(videoDevices.length > 0);
       } catch (err) {
@@ -262,10 +297,7 @@ export default function App() {
     };
 
     checkCamera();
-
-    // Listen for hardware changes (USB camera plugged/unplugged)
     navigator.mediaDevices.addEventListener('devicechange', checkCamera);
-
     return () => {
       navigator.mediaDevices.removeEventListener('devicechange', checkCamera);
     };
@@ -278,34 +310,30 @@ export default function App() {
     }
   }, [messages, isLoading]);
 
-  // Logic to handle pasting images (Shared for Global and Textarea)
-  // Essential for Mobile: Keyboards usually paste into the focused input, not the document.
+  // Logic to handle pasting images
   const handlePaste = useCallback((e: ClipboardEvent | React.ClipboardEvent) => {
     const items = e.clipboardData?.items;
     if (!items) return;
 
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.indexOf('image') !== -1) {
-        e.preventDefault(); // Prevent default text paste if it's an image
+        e.preventDefault(); 
         const blob = items[i].getAsFile();
         if (blob) {
           const reader = new FileReader();
           reader.onload = (event) => {
             const result = event.target?.result as string;
-            // Remove prefix to store raw base64
             const base64Clean = result.split(',')[1];
             setSelectedImage(base64Clean);
           };
           reader.readAsDataURL(blob);
         }
-        break; // Stop after finding first image
+        break; 
       }
     }
   }, []);
 
-  // Attach Global Paste Event (Ctrl+V on desktop)
   useEffect(() => {
-    // Cast to native event listener type
     const globalPasteListener = (e: ClipboardEvent) => handlePaste(e);
     document.addEventListener('paste', globalPasteListener);
     return () => {
@@ -329,7 +357,6 @@ export default function App() {
   };
 
   const handleReset = () => {
-    // Confirmação simples para não perder dados acidentalmente
     if (messages.length > 1 || input || selectedImage) {
       if (!window.confirm("Reiniciar a conversa? O histórico atual será perdido.")) {
         return;
@@ -353,31 +380,23 @@ export default function App() {
       const reader = new FileReader();
       reader.onloadend = () => {
         const result = reader.result as string;
-        // remove data URL prefix to store just base64 for logic, but preview needs prefix
         const base64Clean = result.split(',')[1]; 
         setSelectedImage(base64Clean);
       };
       reader.readAsDataURL(file);
     }
-    // reset input
     e.target.value = '';
   };
 
-  // Logic to handle Camera Click (Mobile Native vs Desktop Modal)
   const handleCameraClick = () => {
-    // Detecção simples de dispositivo móvel
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    
     if (isMobile) {
-      // No mobile, usa o input nativo (melhor UX para celulares)
       cameraInputRef.current?.click();
     } else {
-      // No desktop, abre o modal
       setIsCameraOpen(true);
     }
   };
 
-  // Função chamada pelo CameraModal se falhar ao tentar abrir a stream
   const handleCameraAccessError = () => {
     console.warn("Acesso à câmera falhou (desktop). Desativando botão.");
     setHasCamera(false);
@@ -387,8 +406,6 @@ export default function App() {
     if ((!input.trim() && !selectedImage) || isLoading) return;
 
     let finalInputText = input;
-
-    // Shortcut logic: "boleto" -> "mostre o código deste boleto"
     if (finalInputText.trim().toLowerCase() === 'boleto') {
       finalInputText = "mostre o código deste boleto";
     }
@@ -419,13 +436,10 @@ export default function App() {
       
       setMessages(prev => [...prev, modelMsg]);
 
-      // Automatic Clipboard Logic (Best Effort)
       if (response.text) {
         const numberSequenceMatch = response.text.match(/(?:\n|^)(\d{30,})(?:\n|$|\r)/);
         if (numberSequenceMatch) {
           const codeToCopy = numberSequenceMatch[1];
-          // Wrap in try-catch to silently fail if browser blocks async clipboard write
-          // The UI will show a manual button anyway
           try {
              await navigator.clipboard.writeText(codeToCopy);
              showToastMessage("Código do boleto copiado!");
@@ -436,7 +450,6 @@ export default function App() {
       }
 
     } catch (err: any) {
-      // Improved error display using actual error message
       const errorText = err instanceof Error ? err.message : "Erro desconhecido.";
       const errorMsg: Message = {
         id: (Date.now() + 1).toString(),
@@ -467,7 +480,7 @@ export default function App() {
         <CameraModal 
           onCapture={(base64) => {
             setSelectedImage(base64);
-            setIsCameraOpen(false); // Fecha o modal após capturar
+            setIsCameraOpen(false); 
           }}
           onClose={() => setIsCameraOpen(false)}
           onAccessError={handleCameraAccessError}
@@ -498,10 +511,37 @@ export default function App() {
             Leitor <span className="text-luxury-gold italic">de</span> Imagens
           </h1>
         </div>
-        <div className="hidden md:flex items-center gap-6 text-xs tracking-widest uppercase text-gray-500 font-medium">
-          <span>Gemini 3.0 Flash</span>
-          <span className="w-1 h-1 bg-gray-700 rounded-full"></span>
-          <span>Gemini 2.5 Image</span>
+        
+        {/* Right Side: Install Button (if available) + Model Info */}
+        <div className="flex items-center gap-4">
+          
+          {/* Custom Install Button (Visible ONLY if installable) */}
+          {deferredPrompt && (
+            <button 
+              onClick={handleInstallClick}
+              className="hidden md:flex items-center gap-2 bg-luxury-gold text-black px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider hover:bg-amber-400 transition-colors shadow-[0_0_15px_rgba(212,175,55,0.3)] animate-fade-in"
+            >
+              <DownloadIcon />
+              Instalar App
+            </button>
+          )}
+
+          <div className="hidden md:flex items-center gap-6 text-xs tracking-widest uppercase text-gray-500 font-medium">
+            <span>Gemini 3.0 Flash</span>
+            <span className="w-1 h-1 bg-gray-700 rounded-full"></span>
+            <span>Gemini 2.5 Image</span>
+          </div>
+
+          {/* Mobile Install Icon (if available) */}
+          {deferredPrompt && (
+            <button 
+               onClick={handleInstallClick}
+               className="md:hidden text-luxury-gold hover:text-white transition-colors"
+               title="Instalar App"
+            >
+               <DownloadIcon />
+            </button>
+          )}
         </div>
       </header>
 
@@ -572,10 +612,8 @@ export default function App() {
           )}
 
           {/* Input Bar */}
-          {/* Lógica de layout: Mobile (flex-wrap) vs Desktop (flex-nowrap) */}
           <div className="relative flex flex-wrap md:flex-nowrap items-end gap-3 bg-zinc-900/50 border border-white/10 p-3 rounded-2xl shadow-inner focus-within:border-luxury-gold/50 focus-within:bg-zinc-900 transition-all duration-300">
             
-            {/* Upload Inputs (Hidden) */}
             <input 
               type="file" 
               ref={fileInputRef} 
@@ -583,7 +621,6 @@ export default function App() {
               accept="image/*" 
               onChange={handleFileChange}
             />
-             {/* Camera Input (Hidden) - capture="environment" forces rear camera on mobile */}
              <input 
               type="file" 
               ref={cameraInputRef} 
@@ -594,10 +631,8 @@ export default function App() {
             />
 
             {/* Grupo de Ícones (Esquerda) */}
-            {/* Mobile: Ordem 2 (Linha de baixo) | Desktop: Ordem 1 (Esquerda) */}
             <div className="flex items-center gap-1 order-2 md:order-1 mt-2 md:mt-0">
               
-              {/* Reset Button */}
               <button 
                 onClick={handleReset}
                 className="p-3 text-gray-500 hover:text-red-400 hover:bg-white/5 rounded-xl transition-colors"
@@ -608,10 +643,9 @@ export default function App() {
               
               <div className="w-px h-6 bg-white/10 mx-1"></div>
 
-              {/* Camera Button (Enabled on Desktop now!) */}
               <button 
                 onClick={handleCameraClick}
-                disabled={!hasCamera} // Só desativa se NÃO houver hardware
+                disabled={!hasCamera} 
                 className={`
                   p-3 rounded-xl transition-colors
                   ${!hasCamera 
@@ -624,7 +658,6 @@ export default function App() {
                 <CameraIcon />
               </button>
 
-              {/* Upload Button */}
               <button 
                 onClick={() => fileInputRef.current?.click()}
                 className="p-3 text-gray-400 hover:text-luxury-gold hover:bg-white/5 rounded-xl transition-colors"
@@ -635,7 +668,6 @@ export default function App() {
             </div>
 
             {/* Text Input */}
-            {/* Mobile: Ordem 1 (Linha de cima, 100% largura) | Desktop: Ordem 2 (Meio, flex-1) */}
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -647,7 +679,6 @@ export default function App() {
             />
 
             {/* Send Button */}
-            {/* Mobile: Ordem 3 (Linha de baixo, direita) | Desktop: Ordem 3 (Direita) */}
             <div className="order-3 md:order-3 ml-auto md:ml-0 flex-shrink-0 mt-2 md:mt-0">
               <button 
                 onClick={handleSendMessage}
