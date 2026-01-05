@@ -1,6 +1,6 @@
 {
-  "name": "Leitor de Imagens Luxuoso",
-  "short_name": "LeitorImg",
+  "name": "Leitor de Imagens",
+  "short_name": "Boleto",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#050505",
